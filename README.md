@@ -46,7 +46,7 @@ docker compose up -d --build
 ```
 
 `bootstrap.sh` holt die gepinnten Submodules und legt `.env` an. Es fragt das Web-Passwort ab
-(gespeichert wird nur der bcrypt-Hash) und erzeugt `./data`. Welche Teile laufen, steuert
+(gespeichert wird nur der bcrypt-Hash) und erzeugt `./data`. Soll das eigene Netz ohne Login auskommen, dieses in `GS_LOGIN_EXEMPT` eintragen (siehe [Sicherheitsmodell](docs/architektur.md#sicherheitsmodell-und-offene-punkte)). Welche Teile laufen, steuert
 `COMPOSE_PROFILES` in `.env`. Standard ist `archive,ros,dvm,agro,odm,qgc`.
 
 Danach im Browser `https://<rechner>/` öffnen. Beim ersten Mal von jedem Gerät
