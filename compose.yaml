@@ -402,6 +402,7 @@ services:
     environment:
       AIRCRAFT_API_KEY: ${AIRCRAFT_API_KEY:-}
       MAPLIBRE_TOKEN: ${MAPLIBRE_TOKEN:-dummy}
+      MSDK_VERSION: ${MSDK_VERSION:-}
     volumes:
       - ./upstream/lyrebird:/workspace/lyrebird
       - ./upstream/Mobile-SDK-Android-V5:/workspace/msdk-v5

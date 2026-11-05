@@ -67,7 +67,9 @@ Danach im Browser `https://<rechner>/` öffnen. Beim ersten Mal von jedem Gerät
 
 1. Lyrebird-App auf der Fernsteuerung installieren, entweder aus dem Upstream-Projekt oder über
    `docker compose run --rm android-build lyrebird` (DJI-App-Key in `.env` → `AIRCRAFT_API_KEY`).
-   Die APK landet in `data/apk/`.
+   Die APK landet in `data/apk/`. Gegen eine andere DJI-MSDK-Version testen, ohne das Submodule
+   zu ändern: `docker compose run --rm -e MSDK_VERSION=5.20.1 android-build lyrebird-check`
+   (Debug-APK plus Unit-Tests in einer Arbeitskopie; ohne App-Key mit `ci-placeholder`).
 2. App starten. Die Drohne erscheint automatisch im Dashboard, das ihr auch das Video-Ziel (WHIP) mitteilt.
 3. **QGroundControl:** Verbindung `TCP <rechner>:5760` anlegen (über mavlink-router). QGC übernimmt
    die RTSP-Videoadresse von der Drohne selbst. Custom Actions (Takeoff, Land …) gibt es im Portal

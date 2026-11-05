@@ -6,6 +6,8 @@
 #   docker compose run --rm android-build lyrebird            # -> data/apk/lyrebird-*.apk
 #   docker compose run --rm android-build msdk-sample         # -> data/apk/msdk-v5-sample-*.apk
 #   docker compose run --rm android-build lyrebird-test       # unit tests, as in Lyrebird CI
+#   docker compose run --rm -e MSDK_VERSION=5.20.1 android-build lyrebird-check
+#                                                             # debug APK + unit tests against another MSDK
 ARG JDK_IMAGE=eclipse-temurin:21-jdk-noble
 FROM ${JDK_IMAGE}
 
