@@ -75,6 +75,20 @@ Danach im Browser `https://<rechner>/` öffnen. Beim ersten Mal von jedem Gerät
 4. **ROS 2:** Topics wie `/<drohne>/fmu/out/vehicle_global_position` auf `ROS_DOMAIN_ID`.
    Die Flotte wird in [`config/fleet_settings.yaml`](config/fleet_settings.yaml) eingestellt.
 
+### Feldtest
+
+Vor jedem Einsatz den Vorflugcheck laufen lassen. Er prüft Stack, Ports, Login, Speicher und jede gefundene Drohne
+(Telemetrie, GPS, Akku, Video-Pfad). Er sendet nichts an die Drohne, und der Bericht landet in `data/fieldtest/<datum>/`:
+
+```bash
+./scripts/preflight.py
+```
+
+Danach die Phasen mit `docker compose run --rm gs-tools fieldtest <phase> <RC-IP>` durchgehen
+(`link`, `ground`, `payload`, `ftp`, `signing`, `flight`); jede Phase wird protokolliert.
+Ablauf, Rollen und Abbruchkriterien stehen in [docs/feldtest.md](docs/feldtest.md), die Vorlage zum
+Ausdrucken in [docs/feldtest-protokoll.md](docs/feldtest-protokoll.md).
+
 ### Agrar-Workflow (Beispiel)
 
 1. Feld abfliegen, dann landen. `media-sync` lädt die Fotos nach `data/media/<drohne>/`.
@@ -114,7 +128,7 @@ docker compose run --rm gs-tools field-check <RC-IP> --phase ground
 | `services/qgis/` | QGIS-Webdesktop mit SDU Agro Tools aus dem Submodule |
 | `services/qgc/` | QGroundControl-Webdesktop (offizielles AppImage, Prüfsumme gepinnt) und Einstellungs-Vorbelegung (mit Tests) |
 | `services/mavlink-router/`, `services/android-build/`, `services/gs-tools/` | Images bzw. Skripte |
-| `scripts/` | `bootstrap`, `gen-password`, `update-upstream`, `pull-rc-logs`, `check` |
+| `scripts/` | `bootstrap`, `gen-password`, `preflight` (Vorflugcheck), `update-upstream`, `pull-rc-logs`, `check` |
 | `upstream/` | Git-Submodules, gepinnt und unverändert (siehe unten) |
 
 ## Upstream und Lizenzen
