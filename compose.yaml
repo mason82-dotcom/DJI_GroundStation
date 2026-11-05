@@ -350,6 +350,10 @@ services:
     command: ["help"]
     environment:
       LB_MAVLINK_SIGNING_KEY: ${LB_MAVLINK_SIGNING_KEY:-}
+      # Own listen port: 14550 is mavlink-router, 14552 the dashboard, 14561 the ROS fleet router.
+      # The aircraft answers whichever port a station's heartbeat came from.
+      LB_MAVLINK_PORT: ${GS_TOOLS_MAVLINK_PORT:-14553}
+      LB_MAVLINK_PEER_PORT: ${LB_MAVLINK_PEER_PORT:-14550}
       PYTHONUNBUFFERED: "1"
     volumes:
       - ./services/gs-tools:/gs:ro

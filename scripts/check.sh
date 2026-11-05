@@ -10,4 +10,4 @@ echo "compose: ok"
 bash -n scripts/*.sh services/*/*.sh
 echo "shell: ok"
 (cd services/agro-api && uv run --locked --group test --group lint ruff check . && uv run --locked --group test --group lint ruff format --check . && uv run --locked --group test --group tools pytest -q)
-uv run --with pytest --no-project pytest -q services/media-sync/tests services/gs-init/tests
+uv run --with pytest --no-project pytest -q services/media-sync/tests services/gs-init/tests scripts/tests
