@@ -12,7 +12,7 @@
      │                          └─ WHIP :8889 ──► mediamtx ──RTSP 8554──► QGC, ROS-Videonode
      │                                              └──WHEP (/mtx)──► Browser über Caddy
      │
-     │  Caddy (Login + TLS) :443 Portal  :8443 Dashboard  :5443 DVM  :6443 QGIS
+     │  Caddy (Login + TLS) :443 Portal  :8443 Dashboard  :4443 QGC  :5443 DVM  :6443 QGIS
      │                      :7443 Agro   :3443 NodeODM    :9443 Archiv
      │
      │  ./data  ◄── media-sync (media/, flightlogs/), mavlink-router (flightlogs/tlog/)
@@ -56,12 +56,27 @@ etwas gehört hat (siehe Lyrebird-Doku *Running more than one ground station*):
 | Station | lauscht | sendet an Drohne |
 |---|---|---|
 | mavlink-router (für QGC/MAVSDK über TCP 5760) | 14550 | 14550 |
+| └ QGroundControl im Browser (`qgc`, System-ID **254**) | TCP 5760 am Router | über den Router |
 | ROS-Flottenrouter (`config/fleet_settings.yaml` → `mavlink_port`) | 14561 | 14550 |
 | Dashboard-MAVLink-Tab (`LB_WEBAPP_MAVLINK_PORT`) | 14552 | 14550 |
 
 Den 1-Hz-Heartbeat-Broadcast der Drohnen empfängt der mavlink-router auf 14550. Sobald ein QGC-Client sich über TCP
 verbindet, leitet der Router dessen Heartbeat an die Drohne weiter. Erst dann startet sie den vollen
 Telemetriestrom. Ein QGC direkt auf diesem Rechner muss daher **TCP 5760** statt UDP 14550 nutzen.
+
+### QGroundControl im Stack
+
+Der Dienst `qgc` startet das offizielle QGC-AppImage in einem Webdesktop (wie QGIS) im Host-Netz.
+`services/qgc/seed_settings.py` belegt beim Start die Einstellungen vor (Schlüssel aus dem QGC-Quellcode v5.1.5):
+
+- feste TCP-Verbindung `127.0.0.1:5760` zum mavlink-router, **UDP-Autoconnect aus** – der Router belegt UDP 14550,
+  ein zweites Lauschen dort würde Pakete abzweigen;
+- **System-ID 254**: Dashboard und ROS-Bridge von Lyrebird senden als System 255 / Komponente 190. Laut
+  MAVLink-Leitfaden (Routing) bekommen Bodenstationen absteigende IDs ab 255, damit Antworten zuordenbar bleiben;
+- GCS-Heartbeat an (daran erkennt die Drohne eine Bodenstation), PX4/Multicopter als Vorauswahl, kein Ersteinrichtungsdialog.
+
+Vom Nutzer in QGC geänderte Werte bleiben erhalten; erzwungen werden nur Router-Verbindung, UDP-Schalter und Heartbeat.
+Signierte MAVLink-2-Pakete reicht der Router unverändert durch (MAVLink-Leitfaden).
 
 ## Video
 
