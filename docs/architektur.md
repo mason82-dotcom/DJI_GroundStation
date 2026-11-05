@@ -94,6 +94,10 @@ Lese-Rechte in MediaMTX:
 
 ## Sicherheitsmodell und offene Punkte
 
+- **Login-Ausnahme fürs eigene Netz (optional):** `GS_LOGIN_EXEMPT` (CIDR-Liste) nimmt Clients aus diesen Netzen vom
+  Web-Login aus; alle anderen – z. B. über VPN – brauchen ihn weiter. Standard: leer, also Login für alle. Wer das Heimnetz
+  einträgt, erlaubt jedem Gerät darin die Bedienung von Dashboard und QGroundControl und damit von verbundenen Drohnen.
+
 - **Nicht per Login geschützt** sind die Protokolle, die keine HTTP-Authentifizierung kennen oder die die Drohne
   selbst nutzt: MAVLink (UDP 14550, TCP 5760), MediaMTX-Ingest (8889, 8554, 1935, 8189/udp) und ROS 2 (DDS).
   Das entspricht Lyrebird upstream. Das Netz der Bodenstation ist damit die Vertrauensgrenze. Fremde

@@ -2,7 +2,8 @@
 #
 # One TLS port per web service, because the Lyrebird dashboard (and DVM) use absolute URLs and
 # must sit at the root of their origin. Every site requires the same HTTP basic-auth login
-# (GS_AUTH_USER / GS_AUTH_HASH from .env; create the hash with scripts/gen-password.sh).
+# (GS_AUTH_USER / GS_AUTH_HASH from .env; create the hash with scripts/gen-password.sh), except for
+# clients in GS_LOGIN_EXEMPT (see the auth snippet).
 # All upstream services listen on 127.0.0.1 only, so this proxy is the only way in from the LAN.
 #
 # TLS: GS_TLS=internal (default) issues certificates from Caddy's own local CA for any host name
@@ -42,8 +43,12 @@
 	}
 }
 
+# Login for every client except those in GS_LOGIN_EXEMPT (space-separated CIDRs, e.g. the home network).
+# Default: nobody is exempt (255.255.255.255/32 never matches a client). Exempt clients can operate drones through
+# the dashboard and QGroundControl without a password – set it only for a trusted network.
 (auth) {
-	basic_auth {
+	@needs_login not remote_ip {$GS_LOGIN_EXEMPT:255.255.255.255/32}
+	basic_auth @needs_login {
 		{$GS_AUTH_USER:admin} {$GS_AUTH_HASH}
 	}
 }

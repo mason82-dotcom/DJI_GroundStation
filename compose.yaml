@@ -72,6 +72,7 @@ services:
     environment:
       GS_AUTH_USER: ${GS_AUTH_USER:-admin}
       GS_AUTH_HASH: ${GS_AUTH_HASH:?set GS_AUTH_HASH in .env (scripts/gen-password.sh)}
+      GS_LOGIN_EXEMPT: ${GS_LOGIN_EXEMPT:-}
       GS_TLS: ${GS_TLS:-internal}
       GS_ACME_EMAIL: ${GS_ACME_EMAIL:-}
       GS_SITE_HOST: ${GS_SITE_HOST:-}
