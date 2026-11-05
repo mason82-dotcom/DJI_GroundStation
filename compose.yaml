@@ -319,7 +319,11 @@ services:
       context: .
       dockerfile: services/qgc/Dockerfile
       args:
+        # Change version, both checksums and settings schema together (services/qgc/Dockerfile).
         QGC_VERSION: ${QGC_VERSION:-v5.1.5}
+        QGC_SHA256_AMD64: ${QGC_SHA256_AMD64:-9a47e4cf269d9e4f897f582f6b19aa7ebf1e9e67c9d68a532a45b541354bc344}
+        QGC_SHA256_ARM64: ${QGC_SHA256_ARM64:-ddd92fe3a1cd1c1c21a3028052e9f9b4d4a68cb80689552d3f34727ed2c91e03}
+        QGC_SETTINGS_VERSION: ${QGC_SETTINGS_VERSION:-9}
     # Host network: TCP 127.0.0.1:5760 to mavlink-router and the RTSP URL announced by the drone.
     # noVNC listens on 127.0.0.1 only; Caddy (GS_PORT_QGC) is the way in.
     network_mode: host
@@ -333,6 +337,7 @@ services:
       VNC_GEOMETRY: ${QGC_GEOMETRY:-1920x1080}
       MAVLINK_TCP_PORT: ${MAVLINK_TCP_PORT:-5760}
       QGC_SYSTEM_ID: ${QGC_SYSTEM_ID:-254}
+      QGC_SAVE_PATH: /data/qgc
     volumes:
       - qgc_home:/home/qgc
       - ${GS_DATA_DIR:-./data}:/data

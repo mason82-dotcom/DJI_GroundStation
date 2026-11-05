@@ -28,6 +28,9 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import os
+import tempfile
+from io import StringIO
 from pathlib import Path
 
 SETTINGS_VERSION = "9"
@@ -47,6 +50,8 @@ def seed(
     host: str = "127.0.0.1",
     port: int = 5760,
     system_id: int = DEFAULT_SYSTEM_ID,
+    settings_version: str = SETTINGS_VERSION,
+    save_path: str | None = None,
 ) -> bool:
     """Write or update the settings file. Returns True if the file changed."""
     cp = _parser()
@@ -57,7 +62,9 @@ def seed(
 
     if not cp.has_section("General"):
         cp.add_section("General")
-    cp["General"].setdefault("SettingsVersion", SETTINGS_VERSION)
+    # Exactly the schema version of the installed QGC: any other value makes QGC wipe the whole file on start,
+    # which would bring back UDP auto-connect on 14550 next to mavlink-router.
+    cp["General"]["SettingsVersion"] = str(settings_version)
     if not 1 <= system_id <= 255:
         raise ValueError("MAVLink system ID must be 1..255")
     cp["General"].setdefault("gcsMavlinkSystemID", str(system_id))
@@ -65,6 +72,9 @@ def seed(
     cp["General"].setdefault("preferredFirmwareClass", "12")  # PX4 Pro
     cp["General"].setdefault("preferredVehicleClass", "2")  # Multi-Rotor
     cp["General"].setdefault("firstRunPromptIdsShown", "3")  # initial setup prompt
+    if save_path:
+        # Telemetry logs, plans and videos into the shared data archive instead of the home volume.
+        cp["General"].setdefault("savePath", save_path)
 
     if not cp.has_section("AutoConnect"):
         cp.add_section("AutoConnect")
@@ -86,16 +96,24 @@ def seed(
     links[f"Link{index}\\port"] = str(port)
     links["count"] = str(max(count, index + 1))
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    from io import StringIO
-
     out = StringIO()
     cp.write(out, space_around_delimiters=False)
     after = out.getvalue()
-    if after != before:
-        path.write_text(after, encoding="utf-8")
-        return True
-    return False
+    if after == before:
+        return False
+    # Atomic replace: a stop during the write must never leave a truncated file (QGC would reset everything).
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(
+        dir=path.parent, prefix=".QGroundControl.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(after)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return True
 
 
 def main() -> None:
@@ -108,8 +126,17 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=5760)
     ap.add_argument("--system-id", type=int, default=DEFAULT_SYSTEM_ID)
+    ap.add_argument("--settings-version", default=SETTINGS_VERSION)
+    ap.add_argument("--save-path", default=None)
     args = ap.parse_args()
-    changed = seed(args.settings, args.host, args.port, args.system_id)
+    changed = seed(
+        args.settings,
+        args.host,
+        args.port,
+        args.system_id,
+        args.settings_version,
+        args.save_path,
+    )
     print(f"[qgc] settings {'updated' if changed else 'unchanged'}: {args.settings}")
 
 

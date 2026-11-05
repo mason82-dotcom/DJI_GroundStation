@@ -94,3 +94,27 @@ def test_user_vehicle_preferences_are_kept(tmp_path):
     general = read(f)["General"]
     assert general["preferredFirmwareClass"] == "3"
     assert general["firstRunPromptIdsShown"] == "3,7"
+
+
+def test_schema_version_is_forced_to_the_installed_qgc(tmp_path):
+    f = tmp_path / "QGroundControl.ini"
+    f.write_text("[General]\nSettingsVersion=7\n")
+    seed_settings.seed(f, settings_version="9")
+    assert read(f)["General"]["SettingsVersion"] == "9"
+
+
+def test_save_path_points_into_the_archive_and_user_choice_wins(tmp_path):
+    f = tmp_path / "QGroundControl.ini"
+    seed_settings.seed(f, save_path="/data/qgc")
+    assert read(f)["General"]["savePath"] == "/data/qgc"
+    g = tmp_path / "user.ini"
+    g.write_text("[General]\nSettingsVersion=9\nsavePath=/home/qgc/Missionen\n")
+    seed_settings.seed(g, save_path="/data/qgc")
+    assert read(g)["General"]["savePath"] == "/home/qgc/Missionen"
+
+
+def test_write_is_atomic_and_leaves_no_temp_files(tmp_path):
+    f = tmp_path / "QGroundControl.ini"
+    seed_settings.seed(f)
+    seed_settings.seed(f, port=5799)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["QGroundControl.ini"]

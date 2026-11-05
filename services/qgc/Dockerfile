@@ -13,6 +13,9 @@ FROM ubuntu:24.04
 ARG QGC_VERSION=v5.1.5
 ARG QGC_SHA256_AMD64=9a47e4cf269d9e4f897f582f6b19aa7ebf1e9e67c9d68a532a45b541354bc344
 ARG QGC_SHA256_ARM64=ddd92fe3a1cd1c1c21a3028052e9f9b4d4a68cb80689552d3f34727ed2c91e03
+# Settings schema version of this QGC release (QGC_SETTINGS_VERSION in its CMakeLists.txt). QGC wipes its settings
+# file when the stored version differs, so the seeder writes exactly this value. Change all four ARGs together.
+ARG QGC_SETTINGS_VERSION=9
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -20,16 +23,18 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/home/qgc \
     XDG_RUNTIME_DIR=/tmp/runtime-qgc \
     QT_QPA_PLATFORM=xcb \
-    VNC_GEOMETRY=1920x1080
+    VNC_GEOMETRY=1920x1080 \
+    XAUTHORITY=/tmp/runtime-qgc/Xauthority
+ENV QGC_SETTINGS_VERSION=${QGC_SETTINGS_VERSION}
 
-# Runtime dependencies as listed in QGC's Linux install guide (GStreamer for video, xcb/xkb for Qt), plus the
-# web-desktop pieces used by the QGIS service.
+# Runtime dependencies for Qt (xcb/xkb, OpenGL via Mesa llvmpipe) plus the web-desktop pieces used by the QGIS
+# service. No system GStreamer: the AppImage bundles its plugins (rtsp, rtp, libav, openh264, ...) and AppRun points
+# GST_PLUGIN_SYSTEM_PATH at them exclusively. xauth/mcookie protect the X display (host network, see entrypoint).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        xvfb x11vnc x11-utils novnc websockify openbox fonts-dejavu-core procps ca-certificates curl python3 \
+        xvfb x11vnc x11-utils xauth util-linux novnc websockify openbox fonts-dejavu-core procps ca-certificates \
+        curl python3 \
         libgl1 libegl1 libgl1-mesa-dri libglu1-mesa libxkbcommon-x11-0 libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
         libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinput0 libpulse0 libsdl2-2.0-0 \
-        gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-        gstreamer1.0-libav gstreamer1.0-gl \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eu; \
@@ -57,6 +62,7 @@ RUN chmod 0755 /usr/local/bin/gs-qgc-seed /usr/local/bin/gs-qgc-entrypoint
 
 USER qgc
 WORKDIR /home/qgc
+# Healthy only if noVNC answers AND QGroundControl itself runs (a crash loop must not look healthy).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD python3 -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('NOVNC_PORT', '16081') + '/vnc.html', timeout=4)"
+  CMD pgrep -f /opt/qgc/usr/bin/QGroundControl >/dev/null && python3 -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('NOVNC_PORT', '16081') + '/vnc.html', timeout=4)"
 ENTRYPOINT ["/usr/local/bin/gs-qgc-entrypoint"]
