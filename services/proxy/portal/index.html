@@ -31,6 +31,10 @@
     <a class="card" href="https://{{.Host}}:{{env "GS_PORT_DASHBOARD" | default "8443"}}/">
       <h2>Flotten-Dashboard</h2><p>Lyrebird: Live-Video (WHEP), Telemetrie, Einstellungen, ROS-Status aller Drohnen.</p></a>
 {{$profiles := env "COMPOSE_PROFILES"}}
+{{if contains "qgc" $profiles}}
+    <a class="card" href="https://{{.Host}}:{{env "GS_PORT_QGC" | default "4443"}}/">
+      <h2>QGroundControl</h2><p>QGC im Browser, fest mit dem MAVLink-Router verbunden: Karte, Missionen, Parameter, Video.</p></a>
+{{end}}
 {{if contains "dvm" $profiles}}
     <a class="card" href="https://{{.Host}}:{{env "GS_PORT_DVM" | default "5443"}}/">
       <h2>Drone Video Measure</h2><p>DVM: Objekte in Drohnenvideos vermessen und verfolgen (mit Flugdaten).</p></a>

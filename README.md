@@ -20,6 +20,7 @@ ein Docker-Compose-Stack mit Login und TLS. Er bündelt Lyrebird mit weiteren We
 | `agro` | `qgis` | [sdu-agro-tools](https://github.com/SDU-UAS-Center/sdu-agro-tools) | QGIS-Desktop im Browser mit dem Plugin SDU Agro Tools |
 | `agro` | `agro-api` | [crop-row-connector](https://github.com/SDU-UAS-Center/crop-row-connector), CDC, crop-row-detector | Batch-Jobs: Fotos → Orthomosaik → Segmentierung → Pflanzenreihen → Vitalität |
 | `odm` | `nodeodm` | OpenDroneMap | Orthomosaike aus Drohnenfotos |
+| `qgc` | `qgc` | [QGroundControl](https://github.com/mavlink/qgroundcontrol) v5.1.5 | QGC im Browser, fest mit dem MAVLink-Router verbunden (TCP 5760) |
 | `tools` | `gs-tools` | Lyrebird | CLI: Discovery, Feldtest, Signing-Test, Flugbeispiele |
 | `android` | `android-build` | Lyrebird + [DJI MSDK V5](https://github.com/dji-sdk/Mobile-SDK-Android-V5) | Lyrebird-APK (oder die DJI-Sample-App) im Container bauen |
 
@@ -46,7 +47,7 @@ docker compose up -d --build
 
 `bootstrap.sh` holt die gepinnten Submodules und legt `.env` an. Es fragt das Web-Passwort ab
 (gespeichert wird nur der bcrypt-Hash) und erzeugt `./data`. Welche Teile laufen, steuert
-`COMPOSE_PROFILES` in `.env`. Standard ist `archive,ros,dvm,agro,odm`.
+`COMPOSE_PROFILES` in `.env`. Standard ist `archive,ros,dvm,agro,odm,qgc`.
 
 Danach im Browser `https://<rechner>/` öffnen. Beim ersten Mal von jedem Gerät
 `http://<rechner>/ca.crt` laden und als vertrauenswürdig importieren. Das ist die lokale CA von Caddy.
@@ -56,6 +57,7 @@ Danach im Browser `https://<rechner>/` öffnen. Beim ersten Mal von jedem Gerät
 | 443 | Portal (Links, Endpunkte, QGC-Aktionen, CA-Zertifikat) |
 | 8443 | Lyrebird-Flotten-Dashboard |
 | 5443 | DVM |
+| 4443 | QGroundControl |
 | 6443 | QGIS + SDU Agro Tools |
 | 7443 | Agro-Auswertung (API + Weboberfläche) |
 | 3443 | NodeODM |
@@ -124,6 +126,7 @@ docker compose run --rm gs-tools field-check <RC-IP> --phase ground
 | `services/media-sync/` | Medien- und Flug-Log-Archiv (mit Tests gegen eine simulierte Drohne) |
 | `services/agro-api/` | FastAPI-Jobdienst für CDC, crop-row-detector, crop-row-connector und NodeODM (mit Tests) |
 | `services/qgis/` | QGIS-Webdesktop mit SDU Agro Tools aus dem Submodule |
+| `services/qgc/` | QGroundControl-Webdesktop (offizielles AppImage, Prüfsumme gepinnt) und Einstellungs-Vorbelegung (mit Tests) |
 | `services/mavlink-router/`, `services/android-build/`, `services/gs-tools/` | Images bzw. Skripte |
 | `scripts/` | `bootstrap`, `gen-password`, `preflight` (Vorflugcheck), `update-upstream`, `pull-rc-logs`, `check` |
 | `upstream/` | Git-Submodules, gepinnt und unverändert (siehe unten) |
@@ -149,6 +152,7 @@ standardmäßig auf „onboard“ und markiert native DJI-Missionen als experime
 | sdu-agro-tools | GPL-2.0 | Läuft als eigenständiges QGIS-Plugin im Container |
 | DJI Mobile SDK V5 | DJI EULA | Nur referenziert; das SDK lädt Gradle aus DJIs Maven-Repo, ein eigener App-Key ist nötig |
 | CDC, crop-row-detector | BSD-3-Clause (PyPI) | |
+| QGroundControl | Apache-2.0 / GPL-3.0 (Dual) | offizielles Release-AppImage, Version und SHA-256 je Architektur im Dockerfile gepinnt |
 | MediaMTX (MIT), Caddy (Apache-2.0), mavlink-router (Apache-2.0), NodeODM (AGPL-3.0), QGIS (GPL-2.0+) | | als Images oder aus den Quellen gebaut |
 
 Für die eigenen Dateien in diesem Repository ist noch keine Lizenz festgelegt.
@@ -160,5 +164,5 @@ Für die eigenen Dateien in diesem Repository ist noch keine Lizenz festgelegt.
 ```
 
 `check.sh` prüft die Compose-Konfiguration für alle Profile und die Shell-Syntax. Außerdem laufen Tests und Lint
-für `agro-api`, `media-sync` und `gs-init`. Dasselbe läuft in GitHub Actions
+für `agro-api`, `media-sync`, `gs-init` und `qgc`. Dasselbe läuft in GitHub Actions
 (`.github/workflows/ci.yml`).

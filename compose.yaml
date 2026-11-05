@@ -80,12 +80,14 @@ services:
       GS_PORT_DASHBOARD: ${GS_PORT_DASHBOARD:-8443}
       GS_PORT_DVM: ${GS_PORT_DVM:-5443}
       GS_PORT_QGIS: ${GS_PORT_QGIS:-6443}
+      GS_PORT_QGC: ${GS_PORT_QGC:-4443}
       GS_PORT_AGRO: ${GS_PORT_AGRO:-7443}
       GS_PORT_ODM: ${GS_PORT_ODM:-3443}
       GS_PORT_FILES: ${GS_PORT_FILES:-9443}
       GS_DASHBOARD_INTERNAL_PORT: ${GS_DASHBOARD_INTERNAL_PORT:-18090}
       GS_DVM_INTERNAL_PORT: ${GS_DVM_INTERNAL_PORT:-15000}
       GS_QGIS_INTERNAL_PORT: ${GS_QGIS_INTERNAL_PORT:-16080}
+      GS_QGC_INTERNAL_PORT: ${GS_QGC_INTERNAL_PORT:-16081}
       GS_AGRO_INTERNAL_PORT: ${GS_AGRO_INTERNAL_PORT:-17000}
       GS_ODM_INTERNAL_PORT: ${GS_ODM_INTERNAL_PORT:-13000}
       # shown on the portal page
@@ -309,6 +311,37 @@ services:
       - ${GS_DATA_DIR:-./data}:/data
       - qgis_home:/home/qgis
 
+  qgc:
+    <<: *restart
+    profiles: [qgc]
+    image: gs-qgroundcontrol:${QGC_VERSION:-v5.1.5}
+    build:
+      context: .
+      dockerfile: services/qgc/Dockerfile
+      args:
+        # Change version, both checksums and settings schema together (services/qgc/Dockerfile).
+        QGC_VERSION: ${QGC_VERSION:-v5.1.5}
+        QGC_SHA256_AMD64: ${QGC_SHA256_AMD64:-9a47e4cf269d9e4f897f582f6b19aa7ebf1e9e67c9d68a532a45b541354bc344}
+        QGC_SHA256_ARM64: ${QGC_SHA256_ARM64:-ddd92fe3a1cd1c1c21a3028052e9f9b4d4a68cb80689552d3f34727ed2c91e03}
+        QGC_SETTINGS_VERSION: ${QGC_SETTINGS_VERSION:-9}
+    # Host network: TCP 127.0.0.1:5760 to mavlink-router and the RTSP URL announced by the drone.
+    # noVNC listens on 127.0.0.1 only; Caddy (GS_PORT_QGC) is the way in.
+    network_mode: host
+    shm_size: 1gb
+    depends_on:
+      mavlink-router:
+        condition: service_started
+    environment:
+      NOVNC_PORT: ${GS_QGC_INTERNAL_PORT:-16081}
+      VNC_PORT: ${GS_QGC_VNC_PORT:-5902}
+      VNC_GEOMETRY: ${QGC_GEOMETRY:-1920x1080}
+      MAVLINK_TCP_PORT: ${MAVLINK_TCP_PORT:-5760}
+      QGC_SYSTEM_ID: ${QGC_SYSTEM_ID:-254}
+      QGC_SAVE_PATH: /data/qgc
+    volumes:
+      - qgc_home:/home/qgc
+      - ${GS_DATA_DIR:-./data}:/data
+
   agro-api:
     <<: *restart
     profiles: [agro]
@@ -381,6 +414,7 @@ networks:
   dvm_edge: {}
 
 volumes:
+  qgc_home:
   gs_config:
   caddy_data:
   caddy_config:

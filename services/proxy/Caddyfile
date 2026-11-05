@@ -122,6 +122,13 @@ http://:{$GS_PORT_HTTP:80} {
 }
 
 # --- QGIS web desktop with SDU Agro Tools (noVNC) --------------------------------------------
+{$GS_SITE_HOST}:{$GS_PORT_QGC:4443} {
+	import common
+	import auth
+	redir / /vnc.html?autoconnect=true&resize=remote&path=websockify 302
+	reverse_proxy 127.0.0.1:{$GS_QGC_INTERNAL_PORT:16081}
+}
+
 {$GS_SITE_HOST}:{$GS_PORT_QGIS:6443} {
 	import common
 	import auth
