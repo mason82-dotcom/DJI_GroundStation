@@ -1,0 +1,68 @@
+# MediaMTX for the DJI GroundStation stack -- rendered by gs-init from
+# services/gs-init/templates/mediamtx.yml.tmpl. Edit the template, not the output.
+#
+# Based on upstream/lyrebird/GroundStation/video_test/mediamtx.yml, with one change in
+# intent: the Lyrebird original lets anyone publish AND read. Here publishing stays open
+# on the LAN (the Lyrebird app pushes WHIP/RTMP without credentials), and LAN reading is
+# either anonymous (MTX_LAN_READ_ANONYMOUS=true, default -- needed for QGroundControl, which
+# plays the RTSP URL the aircraft advertises, without credentials) or limited to one named
+# viewer account (false). This host (Caddy /mtx, dashboard, ROS) can always read.
+
+logLevel: info
+logDestinations: [stdout]
+
+# Control API: loopback only. The dashboard configures per-drone paths through it.
+api: yes
+apiAddress: 127.0.0.1:9997
+
+metrics: no
+pprof: no
+
+authMethod: internal
+authInternalUsers:
+  # Aircraft (Lyrebird app) push their video from anywhere on the LAN.
+  - user: ${MTX_PUBLISH_USER}
+    pass: ${MTX_PUBLISH_PASS}
+    ips: []
+    permissions:
+      - action: publish
+  # Everything on this host: Caddy (/mtx WHEP for the dashboard), dashboard, ROS.
+  - user: any
+    pass:
+    ips: ['127.0.0.1/32', '::1/128']
+    permissions:
+      - action: read
+      - action: playback
+      - action: api
+  # LAN viewers (QGroundControl video, VLC, ffplay). "any" = anonymous, otherwise
+  #   rtsp://<MTX_READ_USER>:<MTX_READ_PASS>@<host>:8554/<drone>
+  - user: ${MTX_VIEWER_USER}
+    pass: ${MTX_VIEWER_PASS}
+    ips: []
+    permissions:
+      - action: read
+      - action: playback
+
+# WebRTC: WHIP ingest from the aircraft on :8889 (all interfaces). Browsers play WHEP
+# through the authenticated Caddy route /mtx on the dashboard port instead.
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigins: ['*']
+webrtcLocalUDPAddress: :${MTX_WEBRTC_UDP_PORT}
+# Empty list = advertise every interface. On hosts with VPN/Docker bridges, list the
+# field Wi-Fi interface (MTX_WEBRTC_INTERFACES=wlan0) so ICE does not pick a dead route.
+webrtcIPsFromInterfaces: yes
+webrtcIPsFromInterfacesList: ${MTX_WEBRTC_INTERFACES_YAML}
+webrtcAdditionalHosts: ${MTX_WEBRTC_ADDITIONAL_HOSTS_YAML}
+webrtcICEServers2: []
+
+rtsp: yes
+rtspAddress: :8554
+rtmp: yes
+rtmpAddress: :1935
+hls: no
+srt: no
+moq: no
+
+paths:
+  all_others:

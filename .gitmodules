@@ -1,0 +1,21 @@
+[submodule "upstream/lyrebird"]
+	path = upstream/lyrebird
+	url = https://github.com/SDU-UAS-Center/lyrebird.git
+	shallow = true
+[submodule "upstream/DVM"]
+	path = upstream/DVM
+	url = https://github.com/SDU-UAS-Center/DVM.git
+	shallow = true
+	branch = v2.1.0
+[submodule "upstream/sdu-agro-tools"]
+	path = upstream/sdu-agro-tools
+	url = https://github.com/SDU-UAS-Center/sdu-agro-tools.git
+	shallow = true
+[submodule "upstream/crop-row-connector"]
+	path = upstream/crop-row-connector
+	url = https://github.com/SDU-UAS-Center/crop-row-connector.git
+	shallow = true
+[submodule "upstream/Mobile-SDK-Android-V5"]
+	path = upstream/Mobile-SDK-Android-V5
+	url = https://github.com/dji-sdk/Mobile-SDK-Android-V5.git
+	shallow = true

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Config, tests, lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Submodules needed by the checks (not the 300 MB DJI SDK)
+        run: git submodule update --init --depth 1 upstream/lyrebird upstream/crop-row-connector upstream/sdu-agro-tools upstream/DVM
+      - uses: astral-sh/setup-uv@v6
+      - name: Run scripts/check.sh
+        run: ./scripts/check.sh
+
+  images:
+    name: Build ${{ matrix.service }}
+    runs-on: ubuntu-24.04
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [mavlink-router, agro-api, qgis, dashboard, ros, android-build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Submodules
+        run: git submodule update --init --depth 1 upstream/lyrebird upstream/crop-row-connector upstream/sdu-agro-tools
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (no push)
+        env:
+          GS_AUTH_HASH: ci-dummy
+          COMPOSE_PROFILES: archive,ros,dvm,agro,odm,tools,android
+        run: docker compose --env-file .env.example build ${{ matrix.service }}

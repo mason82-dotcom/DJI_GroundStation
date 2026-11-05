@@ -1,0 +1,388 @@
+# DJI GroundStation server stack
+#
+# Built on Lyrebird (upstream/lyrebird, SDU UAS Center): DJI aircraft running the Lyrebird
+# Android app speak MAVLink 2 / HTTP and publish video over WHIP. This stack is the ground side:
+#
+#   core (always)   gs-init, proxy (Caddy, login + TLS), mediamtx, dashboard, mavlink-router
+#   archive         media-sync: per-flight telemetry logs + SD-card media into ./data
+#   ros             ROS 2 fleet bridge (fmu/in|out topics) + ros-monitor for the dashboard
+#   dvm             Drone Video Measure (upstream/DVM)
+#   agro            QGIS web desktop with SDU Agro Tools + Agro API (CDC, crop rows)
+#   odm             NodeODM (OpenDroneMap) orthomosaics from drone photos
+#   tools           one-shot CLI container: Lyrebird client, field checks, flight examples
+#   android         one-shot build of the Lyrebird Android app (DJI MSDK V5)
+#
+# Choose profiles with COMPOSE_PROFILES in .env (see .env.example), then:
+#   ./scripts/bootstrap.sh        # first time: submodules, .env, secrets
+#   docker compose up -d --build
+#
+# Networking: services that must see the aircraft (UDP broadcast discovery, MAVLink, WebRTC)
+# use the host network and bind their HTTP ports to 127.0.0.1 only. Everything else runs on
+# bridge networks with ports published on 127.0.0.1. Caddy (host network) is the only
+# component that serves web UIs to the LAN, always behind the login.
+
+name: dji-groundstation
+
+x-lyrebird-python: &lyrebird-python
+  # The upstream Lyrebird dashboard image: Python 3.14 + the lyrebird_groundstation client +
+  # pymavlink, built from the pinned submodule without modification. Reused by media-sync and
+  # gs-tools so every Lyrebird-facing Python component runs the same client code.
+  image: gs-lyrebird-python:latest
+  build:
+    context: ./upstream/lyrebird
+    dockerfile: GroundStation/video_test/webapp/Dockerfile
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-localtime: &localtime /etc/localtime:/etc/localtime:ro
+
+services:
+  # ---------------------------------------------------------------------------------------------
+  # core
+  # ---------------------------------------------------------------------------------------------
+  gs-init:
+    image: python:3.13-slim-trixie
+    command: ["python", "/gs/render.py", "/gs/templates", "/out"]
+    environment:
+      MTX_READ_USER: ${MTX_READ_USER:-viewer}
+      MTX_READ_PASS: ${MTX_READ_PASS:-}
+      MTX_LAN_READ_ANONYMOUS: ${MTX_LAN_READ_ANONYMOUS:-true}
+      MTX_PUBLISH_USER: ${MTX_PUBLISH_USER:-any}
+      MTX_PUBLISH_PASS: ${MTX_PUBLISH_PASS:-}
+      MTX_WEBRTC_UDP_PORT: ${MTX_WEBRTC_UDP_PORT:-8189}
+      MTX_WEBRTC_INTERFACES: ${MTX_WEBRTC_INTERFACES:-}
+      MTX_WEBRTC_ADDITIONAL_HOSTS: ${MTX_WEBRTC_ADDITIONAL_HOSTS:-}
+      MAVLINK_DRONE_PORT: ${MAVLINK_DRONE_PORT:-14550}
+      MAVLINK_TCP_PORT: ${MAVLINK_TCP_PORT:-5760}
+      MAVLINK_LOG_ENABLED: ${MAVLINK_LOG_ENABLED:-true}
+      MAVLINK_EXTRA_UDP_TARGET: ${MAVLINK_EXTRA_UDP_TARGET:-}
+    volumes:
+      - ./services/gs-init:/gs:ro
+      - gs_config:/out
+    network_mode: none
+
+  proxy:
+    <<: *restart
+    image: caddy:2.10.2-alpine
+    network_mode: host
+    depends_on:
+      gs-init:
+        condition: service_completed_successfully
+    environment:
+      GS_AUTH_USER: ${GS_AUTH_USER:-admin}
+      GS_AUTH_HASH: ${GS_AUTH_HASH:?set GS_AUTH_HASH in .env (scripts/gen-password.sh)}
+      GS_TLS: ${GS_TLS:-internal}
+      GS_ACME_EMAIL: ${GS_ACME_EMAIL:-}
+      GS_SITE_HOST: ${GS_SITE_HOST:-}
+      GS_PORT_HTTP: ${GS_PORT_HTTP:-80}
+      GS_PORT_PORTAL: ${GS_PORT_PORTAL:-443}
+      GS_PORT_DASHBOARD: ${GS_PORT_DASHBOARD:-8443}
+      GS_PORT_DVM: ${GS_PORT_DVM:-5443}
+      GS_PORT_QGIS: ${GS_PORT_QGIS:-6443}
+      GS_PORT_AGRO: ${GS_PORT_AGRO:-7443}
+      GS_PORT_ODM: ${GS_PORT_ODM:-3443}
+      GS_PORT_FILES: ${GS_PORT_FILES:-9443}
+      GS_DASHBOARD_INTERNAL_PORT: ${GS_DASHBOARD_INTERNAL_PORT:-18090}
+      GS_DVM_INTERNAL_PORT: ${GS_DVM_INTERNAL_PORT:-15000}
+      GS_QGIS_INTERNAL_PORT: ${GS_QGIS_INTERNAL_PORT:-16080}
+      GS_AGRO_INTERNAL_PORT: ${GS_AGRO_INTERNAL_PORT:-17000}
+      GS_ODM_INTERNAL_PORT: ${GS_ODM_INTERNAL_PORT:-13000}
+      # shown on the portal page
+      MAVLINK_TCP_PORT: ${MAVLINK_TCP_PORT:-5760}
+      MTX_READ_USER: ${MTX_READ_USER:-viewer}
+      MTX_LAN_READ_ANONYMOUS: ${MTX_LAN_READ_ANONYMOUS:-true}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+    volumes:
+      - ./services/proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./services/proxy/portal:/srv/portal:ro
+      - ./upstream/lyrebird/GroundStation/qgc:/srv/qgc:ro
+      - ${GS_DATA_DIR:-./data}:/srv/files:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - *localtime
+
+  mediamtx:
+    <<: *restart
+    image: bluenviron/mediamtx:1.21.1
+    network_mode: host
+    command: ["/cfg/mediamtx.yml"]
+    depends_on:
+      gs-init:
+        condition: service_completed_successfully
+    volumes:
+      - gs_config:/cfg:ro
+      - *localtime
+
+  dashboard:
+    <<: [*restart, *lyrebird-python]
+    network_mode: host
+    depends_on:
+      mediamtx:
+        condition: service_started
+    # Unmodified upstream server.py, bound to loopback by the launcher (see the file's docstring).
+    command: ["python", "/gs/bind_launcher.py", "server.py"]
+    environment:
+      GS_BIND_HOST: 127.0.0.1
+      PORT: ${GS_DASHBOARD_INTERNAL_PORT:-18090}
+      MEDIAMTX_API_URL: http://127.0.0.1:9997
+      # Relative: the browser fetches WHEP through the authenticated Caddy route /mtx.
+      MEDIAMTX_WEBRTC_URL: /mtx
+      DRONE_NAMES: ${DRONE_NAMES:-}
+      DRONE_FALLBACKS: ${DRONE_FALLBACKS:-}
+      DISCOVERY_INTERVAL_MS: ${DISCOVERY_INTERVAL_MS:-5000}
+      TELEMETRY_PORT: ${TELEMETRY_PORT:-8081}
+      LOG_DIR: /logs
+      PYTHONUNBUFFERED: "1"
+      LB_WEBAPP_MAVLINK_PORT: ${LB_WEBAPP_MAVLINK_PORT:-14552}
+      LB_MAVLINK_PEER_PORT: ${LB_MAVLINK_PEER_PORT:-14550}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,os; urllib.request.urlopen('http://127.0.0.1:'+os.environ['PORT']+'/api/drones', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./services/dashboard:/gs:ro
+      - ${GS_DATA_DIR:-./data}/logs/dashboard:/logs
+      - *localtime
+
+  mavlink-router:
+    <<: *restart
+    image: gs-mavlink-router:latest
+    build:
+      context: ./services/mavlink-router
+    network_mode: host
+    command: ["-c", "/cfg/mavlink-router.conf"]
+    depends_on:
+      gs-init:
+        condition: service_completed_successfully
+    volumes:
+      - gs_config:/cfg:ro
+      - ${GS_DATA_DIR:-./data}/flightlogs/tlog:/logs
+      - *localtime
+
+  # ---------------------------------------------------------------------------------------------
+  # archive: flight logs + media
+  # ---------------------------------------------------------------------------------------------
+  media-sync:
+    <<: [*restart, *lyrebird-python]
+    profiles: [archive]
+    network_mode: host
+    command: ["python", "/gs/media_sync.py"]
+    environment:
+      MEDIA_SYNC_DATA_ROOT: /data
+      MEDIA_SYNC_DOWNLOAD_MEDIA: ${MEDIA_SYNC_DOWNLOAD_MEDIA:-true}
+      MEDIA_SYNC_RECORD_TELEMETRY: ${MEDIA_SYNC_RECORD_TELEMETRY:-true}
+      MEDIA_SYNC_LANDED_SECONDS: ${MEDIA_SYNC_LANDED_SECONDS:-60}
+      MEDIA_SYNC_DRONES: ${MEDIA_SYNC_DRONES:-}
+      TELEMETRY_PORT: ${TELEMETRY_PORT:-8081}
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:17100/status', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - ./services/media-sync:/gs:ro
+      - ${GS_DATA_DIR:-./data}:/data
+      - *localtime
+
+  # ---------------------------------------------------------------------------------------------
+  # ros: ROS 2 fleet bridge
+  # ---------------------------------------------------------------------------------------------
+  ros:
+    <<: *restart
+    profiles: [ros]
+    image: gs-lyrebird-ros:${ROS_DISTRO:-lyrical}
+    build:
+      context: ./upstream/lyrebird
+      dockerfile: GroundStation/Dockerfile
+      args:
+        ROS_DISTRO: ${ROS_DISTRO:-lyrical}
+    network_mode: host
+    ipc: host
+    command:
+      - bash
+      - -c
+      - >-
+        source /opt/ros/$${ROS_DISTRO}/setup.bash && source /ros2_ws/install/setup.bash &&
+        exec ros2 launch lyrebird_bringup fleet_auto_discovery.launch.py
+        fleet_settings_file:=/config/fleet_settings.yaml
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./config/fleet_settings.yaml:/config/fleet_settings.yaml:ro
+      - *localtime
+
+  ros-monitor:
+    <<: *restart
+    profiles: [ros]
+    image: gs-lyrebird-ros-monitor:latest
+    build:
+      context: ./upstream/lyrebird
+      dockerfile: GroundStation/video_test/ros_monitor/Dockerfile
+    network_mode: host
+    ipc: host
+    depends_on:
+      dashboard:
+        condition: service_healthy
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      # The `ros` service owns the controllers; the monitor only reports topics to the dashboard.
+      # Running both with controllers would give every drone two sets of nodes.
+      ROS_RUN_CONTROLLER: "0"
+      WEBAPP_URL: http://127.0.0.1:${GS_DASHBOARD_INTERNAL_PORT:-18090}
+      ROS_REPORT_INTERVAL: ${ROS_REPORT_INTERVAL:-3}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - *localtime
+
+  # ---------------------------------------------------------------------------------------------
+  # dvm: Drone Video Measure (upstream/DVM, MIT). DVM hard-codes its database and broker as the
+  # hosts "db" and "redis" with the stock password, so both live on an internal-only network
+  # under exactly those aliases and are never reachable from outside the stack.
+  # ---------------------------------------------------------------------------------------------
+  dvm-web:
+    <<: *restart
+    profiles: [dvm]
+    image: ghcr.io/sdu-uas-center/dvm:${DVM_VERSION:-v2.1.0}
+    command: /app/entrypoint.sh
+    depends_on: [dvm-db, dvm-redis, dvm-worker]
+    ports:
+      - 127.0.0.1:${GS_DVM_INTERNAL_PORT:-15000}:5000
+    networks: [dvm_backend, dvm_edge]
+    volumes:
+      - dvm_app_media:/app_data
+
+  dvm-worker:
+    <<: *restart
+    profiles: [dvm]
+    image: ghcr.io/sdu-uas-center/dvm:${DVM_VERSION:-v2.1.0}
+    command: celery -A dvm.make_celery worker --loglevel=WARNING
+    depends_on: [dvm-redis]
+    networks: [dvm_backend]
+    volumes:
+      - dvm_app_media:/app_data
+
+  dvm-redis:
+    <<: *restart
+    profiles: [dvm]
+    image: redis:7.4-alpine
+    networks:
+      dvm_backend:
+        aliases: [redis]
+
+  dvm-db:
+    <<: *restart
+    profiles: [dvm]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: example  # fixed by DVM's app_config.py; the network is internal-only
+    networks:
+      dvm_backend:
+        aliases: [db]
+    volumes:
+      - dvm_db_data_v17:/var/lib/postgresql/data
+
+  # ---------------------------------------------------------------------------------------------
+  # agro: QGIS + SDU Agro Tools, Agro API
+  # ---------------------------------------------------------------------------------------------
+  qgis:
+    <<: *restart
+    profiles: [agro]
+    image: gs-qgis-agro:latest
+    build:
+      context: .
+      dockerfile: services/qgis/Dockerfile
+      args:
+        QGIS_IMAGE: qgis/qgis:${QGIS_VERSION:-3.44}
+    shm_size: 1gb
+    environment:
+      VNC_GEOMETRY: ${QGIS_GEOMETRY:-1920x1080}
+    ports:
+      - 127.0.0.1:${GS_QGIS_INTERNAL_PORT:-16080}:6080
+    volumes:
+      - ${GS_DATA_DIR:-./data}:/data
+      - qgis_home:/home/qgis
+
+  agro-api:
+    <<: *restart
+    profiles: [agro]
+    image: gs-agro-api:latest
+    build:
+      context: .
+      dockerfile: services/agro-api/Dockerfile
+    environment:
+      AGRO_MAX_PARALLEL_JOBS: ${AGRO_MAX_PARALLEL_JOBS:-1}
+      AGRO_MAX_UPLOAD_MB: ${AGRO_MAX_UPLOAD_MB:-20480}
+      NODEODM_URL: http://nodeodm:3000
+    ports:
+      - 127.0.0.1:${GS_AGRO_INTERNAL_PORT:-17000}:8000
+    volumes:
+      - ${GS_DATA_DIR:-./data}:/data
+
+  # ---------------------------------------------------------------------------------------------
+  # odm: NodeODM (OpenDroneMap, AGPL-3.0) -- photos -> orthomosaic for the agro pipeline
+  # ---------------------------------------------------------------------------------------------
+  nodeodm:
+    <<: *restart
+    profiles: [odm]
+    image: opendronemap/nodeodm:${NODEODM_VERSION:-3.6.2}
+    command: ["--max_concurrency", "${NODEODM_MAX_CONCURRENCY:-4}", "--cleanup_tasks_after", "${NODEODM_CLEANUP_MINUTES:-2880}"]
+    ports:
+      - 127.0.0.1:${GS_ODM_INTERNAL_PORT:-13000}:3000
+    volumes:
+      - nodeodm_data:/var/www/data
+
+  # ---------------------------------------------------------------------------------------------
+  # tools / android: one-shot containers, run with `docker compose run --rm <service> ...`
+  # ---------------------------------------------------------------------------------------------
+  gs-tools:
+    <<: *lyrebird-python
+    profiles: [tools]
+    network_mode: host
+    working_dir: /opt/lyrebird-gs
+    entrypoint: ["/gs/gs-tools.sh"]
+    command: ["help"]
+    environment:
+      LB_MAVLINK_SIGNING_KEY: ${LB_MAVLINK_SIGNING_KEY:-}
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./services/gs-tools:/gs:ro
+      - ./upstream/lyrebird/GroundStation:/opt/lyrebird-gs:ro
+      - ${GS_DATA_DIR:-./data}:/data
+
+  android-build:
+    profiles: [android]
+    image: gs-android-build:latest
+    build:
+      context: ./services/android-build
+    environment:
+      AIRCRAFT_API_KEY: ${AIRCRAFT_API_KEY:-}
+      MAPLIBRE_TOKEN: ${MAPLIBRE_TOKEN:-dummy}
+    volumes:
+      - ./upstream/lyrebird:/workspace/lyrebird
+      - ./upstream/Mobile-SDK-Android-V5:/workspace/msdk-v5
+      - ${GS_DATA_DIR:-./data}/apk:/out
+      - android_gradle:/root/.gradle
+      - android_sdk:/opt/android-sdk
+
+networks:
+  dvm_backend:
+    internal: true
+  dvm_edge: {}
+
+volumes:
+  gs_config:
+  caddy_data:
+  caddy_config:
+  dvm_app_media:
+  dvm_db_data_v17:
+  qgis_home:
+  nodeodm_data:
+  android_gradle:
+  android_sdk:
