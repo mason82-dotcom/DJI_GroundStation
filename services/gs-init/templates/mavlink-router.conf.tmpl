@@ -1,0 +1,32 @@
+# mavlink-router for the DJI GroundStation stack -- rendered by gs-init from
+# services/gs-init/templates/mavlink-router.conf.tmpl. Edit the template, not the output.
+#
+# Topology
+#   Lyrebird aircraft --UDP--> :${MAVLINK_DRONE_PORT} (server endpoint "drones")
+#   QGroundControl / MAVSDK on any machine --TCP--> :${MAVLINK_TCP_PORT}
+#
+# Every Lyrebird aircraft broadcasts a 1 Hz HEARTBEAT to <subnet>:14550 and starts its full
+# telemetry stream once a ground station has been heard from. The "drones" endpoint receives
+# those beacons; as soon as a TCP client (QGC) sends its heartbeat, the router forwards it to
+# every aircraft it has heard, and the aircraft start streaming back to the router. Several
+# QGC instances (local, remote via VPN) can share one radio link this way.
+#
+# The Lyrebird dashboard (UDP 14552) and the ROS 2 fleet node (UDP 14561) talk to the aircraft
+# directly, exactly as upstream Lyrebird designs it, so they are NOT routed here; routing them
+# as well would hand them every packet twice.
+
+[General]
+TcpServerPort = ${MAVLINK_TCP_PORT}
+ReportStats = false
+MavlinkDialect = auto
+${MAVLINK_LOG_LINE}
+# Write a .tlog only while an aircraft reports armed (Lyrebird mirrors DJI motor state).
+LogMode = while-armed
+MinFreeSpace = 524288000
+
+[UdpEndpoint drones]
+Mode = Server
+Address = 0.0.0.0
+Port = ${MAVLINK_DRONE_PORT}
+
+${MAVLINK_EXTRA_ENDPOINT}

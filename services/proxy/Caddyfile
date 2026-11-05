@@ -1,0 +1,170 @@
+# Caddy reverse proxy for the DJI GroundStation stack.
+#
+# One TLS port per web service, because the Lyrebird dashboard (and DVM) use absolute URLs and
+# must sit at the root of their origin. Every site requires the same HTTP basic-auth login
+# (GS_AUTH_USER / GS_AUTH_HASH from .env; create the hash with scripts/gen-password.sh).
+# All upstream services listen on 127.0.0.1 only, so this proxy is the only way in from the LAN.
+#
+# TLS: GS_TLS=internal (default) issues certificates from Caddy's own local CA for any host name
+# or IP the browser uses -- download /ca.crt from the portal once and trust it. Set GS_TLS=acme
+# plus GS_ACME_EMAIL and a public DNS name in GS_SITE_HOST to use Let's Encrypt instead.
+{
+	admin off
+	# Internal CA certificates are minted on demand for whatever name/IP the client asks for
+	# (field laptops are reached by changing IPs); the ask endpoint below allows that.
+	on_demand_tls {
+		ask http://127.0.0.1:{$GS_ASK_PORT:9981}/ask
+	}
+}
+
+(tls_internal) {
+	tls internal {
+		on_demand
+	}
+}
+
+(tls_acme) {
+	tls {$GS_ACME_EMAIL}
+}
+
+(common) {
+	import tls_{$GS_TLS:internal}
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		-Server
+	}
+	log {
+		output stdout
+		format console
+	}
+}
+
+(auth) {
+	basic_auth {
+		{$GS_AUTH_USER:admin} {$GS_AUTH_HASH}
+	}
+}
+
+# On-demand TLS permission check: loopback only, always "yes" for the internal CA.
+http://127.0.0.1:{$GS_ASK_PORT:9981} {
+	bind 127.0.0.1
+	respond /ask 200
+}
+
+# Plain HTTP on :80 only redirects (and serves the CA certificate for first-time setup).
+http://:{$GS_PORT_HTTP:80} {
+	handle /ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		file_server
+	}
+	handle {
+		redir https://{host}:{$GS_PORT_PORTAL:443}{uri} 302
+	}
+}
+
+# --- Portal ------------------------------------------------------------------------------
+{$GS_SITE_HOST}:{$GS_PORT_PORTAL:443} {
+	import common
+	handle /ca.crt {
+		root * /data/caddy/pki/authorities/local
+		rewrite * /root.crt
+		header Content-Type application/x-x509-ca-cert
+		file_server
+	}
+	handle_path /qgc/* {
+		import auth
+		root * /srv/qgc
+		file_server
+	}
+	handle {
+		import auth
+		templates
+		root * /srv/portal
+		file_server
+	}
+}
+
+# --- Lyrebird video & telemetry dashboard (+ WHEP playback through /mtx) -------------------
+{$GS_SITE_HOST}:{$GS_PORT_DASHBOARD:8443} {
+	import common
+	import auth
+	# Browser WHEP signalling goes to MediaMTX through this authenticated origin; the media
+	# itself then flows over WebRTC/UDP (port MTX_WEBRTC_UDP_PORT) directly.
+	handle_path /mtx/* {
+		reverse_proxy 127.0.0.1:8889
+	}
+	handle {
+		reverse_proxy 127.0.0.1:{$GS_DASHBOARD_INTERNAL_PORT:18090} {
+			# /api/events is a Server-Sent Events stream.
+			flush_interval -1
+		}
+	}
+}
+
+# --- DVM (Drone Video Measure) --------------------------------------------------------------
+{$GS_SITE_HOST}:{$GS_PORT_DVM:5443} {
+	import common
+	import auth
+	request_body {
+		max_size 20GB
+	}
+	reverse_proxy 127.0.0.1:{$GS_DVM_INTERNAL_PORT:15000} {
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}
+
+# --- QGIS web desktop with SDU Agro Tools (noVNC) --------------------------------------------
+{$GS_SITE_HOST}:{$GS_PORT_QGIS:6443} {
+	import common
+	import auth
+	redir / /vnc.html?autoconnect=true&resize=remote&path=websockify 302
+	reverse_proxy 127.0.0.1:{$GS_QGIS_INTERNAL_PORT:16080}
+}
+
+# --- Agro API (CDC / crop-row-detector / crop-row-connector jobs) -----------------------------
+{$GS_SITE_HOST}:{$GS_PORT_AGRO:7443} {
+	import common
+	import auth
+	request_body {
+		max_size 20GB
+	}
+	reverse_proxy 127.0.0.1:{$GS_AGRO_INTERNAL_PORT:17000} {
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}
+
+# --- NodeODM (OpenDroneMap) task UI ---------------------------------------------------------
+{$GS_SITE_HOST}:{$GS_PORT_ODM:3443} {
+	import common
+	import auth
+	request_body {
+		max_size 50GB
+	}
+	reverse_proxy 127.0.0.1:{$GS_ODM_INTERNAL_PORT:13000} {
+		transport http {
+			read_timeout 0
+			write_timeout 0
+		}
+	}
+}
+
+# --- Shared data volume, read-only browser (media, flight logs, orthomosaics, APKs) ---------
+{$GS_SITE_HOST}:{$GS_PORT_FILES:9443} {
+	import common
+	import auth
+	root * /srv/files
+	file_server browse {
+		hide .synced.json .tmp *.part
+	}
+}

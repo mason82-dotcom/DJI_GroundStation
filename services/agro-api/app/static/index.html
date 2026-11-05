@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agro-Auswertung</title>
+<style>
+  :root { --bg:#f6f7f4; --fg:#1d2a1f; --muted:#5b6b5e; --card:#fff; --line:#d9dfd6; --accent:#2f7d3a; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111712; --fg:#e4eee5; --muted:#9db0a0; --card:#1a231c; --line:#2c3a2f; --accent:#6cc27a; --bad:#f2827a; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:1000px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:1.5rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:0 0 12px; }
+  p.lead { color:var(--muted); margin:0 0 24px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:20px; }
+  label { display:block; font-weight:600; margin:10px 0 4px; }
+  input, select { width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:0 16px; }
+  .hint { color:var(--muted); font-size:.85rem; }
+  button { margin-top:14px; padding:8px 16px; border:0; border-radius:6px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; } th, td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); }
+  .failed { color:var(--bad); } .succeeded { color:var(--accent); } a { color:var(--accent); }
+  fieldset { border:1px dashed var(--line); border-radius:8px; margin-top:14px; } legend { color:var(--muted); }
+  #msg { margin-top:10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Agro-Auswertung</h1>
+  <p class="lead">Drohnenfotos → Orthomosaik (NodeODM) → Farbsegmentierung (CDC) → Reihenerkennung (crop-row-detector) → Reihen verbinden &amp; Vitalität (crop-row-connector). Werkzeuge des SDU UAS Center.</p>
+
+  <section>
+    <h2>Neuer Job</h2>
+    <form id="jobForm">
+      <label for="pipeline">Pipeline</label>
+      <select id="pipeline" name="pipeline"></select>
+      <p class="hint" id="pipelineDesc"></p>
+      <div id="inputs"></div>
+      <div id="params"></div>
+      <button type="submit">Job starten</button>
+      <div id="msg" role="status"></div>
+    </form>
+  </section>
+
+  <section>
+    <h2>Jobs</h2>
+    <table><thead><tr><th>Start</th><th>Pipeline</th><th>Status</th><th>Schritte</th><th></th></tr></thead><tbody id="jobs"></tbody></table>
+  </section>
+</main>
+<script>
+const PARAMS = {
+  odm: [["orthophoto_resolution","Orthofoto-Auflösung cm/px"],["feature_quality","Feature-Qualität (ultra…lowest)"],["fast_orthophoto","Schnelles Orthofoto (true/false)"],["dsm","Höhenmodell DSM (true/false)"]],
+  cdc: [["method","Methode (mahalanobis|gmm)"],["param","Parameter (GMM-Komponenten)"],["scale","Skalierung"],["tile_size","Kachelgröße px"]],
+  detector: [["segmentation_threshold","Segmentierungsschwelle"],["vegetation_threshold","Vegetationsschwelle"],["tile_size","Kachelgröße px"],["expected_crop_row_distance","Reihenabstand cm"],["min_angle","Min. Winkel °"],["max_angle","Max. Winkel °"],["angle_resolution","Winkelauflösung"]],
+  connector: [["angle_tolerance","Winkeltoleranz °"],["distance_tolerance","Abstandstoleranz m"],["vegetation_threshold","Vegetationsschwelle 0-255"],["min_unhealthy_vegetation_length","Min. Fehlstellenlänge m"],["max_segment_length","Max. Segmentlänge m"]],
+};
+const LABELS = {images_dir:"Bildordner (Drohnenfotos)", orthomosaic:"Orthomosaik (GeoTIFF)", reference:"Referenzbild", annotated:"Annotiertes Referenzbild", segmented_orthomosaic:"Segmentiertes Orthomosaik", row_information:"row_information_global.csv", points_in_rows:"points_in_rows.csv"};
+let pipelines = [], files = [], folders = [];
+const el = (tag, attrs={}, text="") => { const e = document.createElement(tag); Object.entries(attrs).forEach(([k,v]) => e.setAttribute(k,v)); if (text) e.textContent = text; return e; };
+
+function render() {
+  const p = pipelines.find(x => x.name === document.getElementById("pipeline").value);
+  document.getElementById("pipelineDesc").textContent = p.description;
+  const inputs = document.getElementById("inputs"); inputs.replaceChildren();
+  [...p.inputs, ...p.optionalInputs].forEach(name => {
+    const fs = el("fieldset"); fs.append(el("legend", {}, (LABELS[name]||name) + (p.optionalInputs.includes(name) ? " (optional)" : "")));
+    if (name.endsWith("_dir")) {
+      const sel = el("select", {name: name + "_path", id:"s_"+name}); sel.append(el("option", {value:""}, "— Ordner wählen (z. B. media/<drohne>) —"));
+      folders.forEach(f => sel.append(el("option", {value:f.path}, `${f.path} (${f.images} Bilder)`)));
+      fs.append(el("label", {for:"s_"+name}, "Ordner auf dem Daten-Volume (/data)"), sel); inputs.append(fs); return;
+    }
+    const up = el("input", {type:"file", name, id:"f_"+name}); fs.append(el("label", {for:"f_"+name}, "Hochladen"), up);
+    const sel = el("select", {name: name + "_path", id:"s_"+name}); sel.append(el("option", {value:""}, "— oder Datei vom Daten-Volume wählen —"));
+    files.forEach(f => sel.append(el("option", {value:f.path}, `${f.path} (${(f.bytes/1048576).toFixed(1)} MB)`)));
+    fs.append(el("label", {for:"s_"+name}, "Gemeinsames Daten-Volume (/data)"), sel);
+    inputs.append(fs);
+  });
+  const params = document.getElementById("params"); params.replaceChildren();
+  p.paramGroups.forEach(group => {
+    const fs = el("fieldset"); fs.append(el("legend", {}, `Parameter ${group} (leer = Standard)`));
+    const grid = el("div", {class:"grid"});
+    PARAMS[group].forEach(([key, label]) => { const id = `p_${group}_${key}`; const wrap = el("div"); wrap.append(el("label", {for:id}, label), el("input", {id, name:`${group}.${key}`})); grid.append(wrap); });
+    fs.append(grid); params.append(fs);
+  });
+}
+
+async function loadJobs() {
+  const jobs = await (await fetch("api/jobs")).json();
+  const body = document.getElementById("jobs"); body.replaceChildren();
+  jobs.forEach(j => {
+    const tr = el("tr");
+    tr.append(el("td", {}, new Date(j.created*1000).toLocaleString()), el("td", {}, j.pipeline), el("td", {class:j.status}, j.status + (j.error ? ` – ${j.error}` : "")), el("td", {}, j.steps.map(s => `${s.name}:${s.returncode}`).join(", ")));
+    const td = el("td"); const log = el("a", {href:`api/jobs/${j.id}/log`, target:"_blank"}, "Log"); td.append(log);
+    if (j.status === "succeeded") { td.append(" · ", el("a", {href:`api/jobs/${j.id}/result.zip`}, "Ergebnis (ZIP)")); }
+    tr.append(td); body.append(tr);
+  });
+}
+
+document.getElementById("jobForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const msg = document.getElementById("msg"); msg.textContent = "Wird hochgeladen …";
+  const res = await fetch("api/jobs", {method:"POST", body:new FormData(ev.target)});
+  const data = await res.json();
+  msg.textContent = res.ok ? `Job ${data.id.slice(0,8)} gestartet.` : `Fehler: ${data.detail}`;
+  msg.className = res.ok ? "succeeded" : "failed";
+  loadJobs();
+});
+
+(async () => {
+  [pipelines, files, folders] = await Promise.all(["api/pipelines", "api/files", "api/folders"].map(u => fetch(u).then(r => r.json())));
+  const sel = document.getElementById("pipeline");
+  pipelines.forEach(p => sel.append(el("option", {value:p.name}, p.name)));
+  sel.value = "full"; sel.addEventListener("change", render); render();
+  loadJobs(); setInterval(loadJobs, 5000);
+})();
+</script>
+</body>
+</html>

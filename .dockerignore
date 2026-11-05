@@ -1,0 +1,15 @@
+# Build context for services/qgis and services/agro-api is the repository root.
+.git
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+build/
+data/
+logs/
+.env
+upstream/Mobile-SDK-Android-V5
+upstream/lyrebird
+upstream/DVM
+upstream/crop-row-connector/target
+upstream/crop-row-connector/test_dataset
