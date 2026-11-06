@@ -106,14 +106,22 @@ def test_worker_records_flight_and_archives_media_after_landing(tmp_path, monkey
     threading.Thread(target=worker.run, daemon=True).start()
     deadline = time.time() + 10
     media = tmp_path / "media" / "mini_.._x"
-    while time.time() < deadline and not (media / "DJI_0002.MP4").exists():
+    index = media / ".synced.json"
+
+    def all_synced():  # the index is rewritten atomically after each finished download
+        try:
+            return set(json.loads(index.read_text())) == set(FakeDrone.files)
+        except (OSError, ValueError):
+            return False
+
+    while time.time() < deadline and not all_synced():
         time.sleep(0.05)
     worker.stop.set()
 
     assert (media / "DJI_0001.JPG").read_bytes() == b"jpeg-bytes"
     assert (media / "DJI_0002.MP4").stat().st_size == 9000
     assert (media / "evil").exists() and not (tmp_path / "evil").exists()
-    assert set(json.loads((media / ".synced.json").read_text())) == set(FakeDrone.files)
+    assert all_synced()
     logs = list((tmp_path / "flightlogs").rglob("*.jsonl"))
     assert len(logs) == 1
     lines = [json.loads(line) for line in logs[0].read_text().splitlines()]
