@@ -52,6 +52,8 @@ docker compose up -d --build
 Danach im Browser `https://<rechner>/` öffnen. Beim ersten Mal von jedem Gerät
 `http://<rechner>/ca.crt` laden und als vertrauenswürdig importieren. Das ist die lokale CA von Caddy.
 
+Über **Tailscale** braucht es kein Zertifikat zu importieren: Wird `/var/run/tailscale/tailscaled.sock` in den Proxy eingebunden (z. B. per `compose.override.yaml`), holt Caddy für den `*.ts.net`-Namen des Rechners ein gültiges Zertifikat von Tailscale, auf allen Ports. Der Login bleibt dort aktiv, solange das Tailnet nicht in `GS_LOGIN_EXEMPT` steht.
+
 | Port | Oberfläche |
 |---|---|
 | 443 | Portal (Links, Endpunkte, QGC-Aktionen, CA-Zertifikat) |
