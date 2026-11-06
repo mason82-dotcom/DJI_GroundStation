@@ -9,6 +9,8 @@
 # TLS: GS_TLS=internal (default) issues certificates from Caddy's own local CA for any host name
 # or IP the browser uses -- download /ca.crt from the portal once and trust it. Set GS_TLS=acme
 # plus GS_ACME_EMAIL and a public DNS name in GS_SITE_HOST to use Let's Encrypt instead.
+# Tailscale: with /var/run/tailscale/tailscaled.sock mounted into the proxy, the machine's
+# *.ts.net name gets a trusted Tailscale certificate on every port (login still required there).
 {
 	admin off
 	# Internal CA certificates are minted on demand for whatever name/IP the client asks for
@@ -21,6 +23,10 @@
 (tls_internal) {
 	tls internal {
 		on_demand
+		# Tailnet names (*.ts.net) get a publicly trusted certificate from the local tailscaled
+		# (socket mounted into the proxy, see README); every other name/IP keeps the internal CA.
+		# Without the socket Caddy falls back to the internal CA for those names as well.
+		get_certificate tailscale
 	}
 }
 
