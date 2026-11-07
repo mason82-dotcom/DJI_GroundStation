@@ -16,10 +16,16 @@ seed() {
 }
 mkdir -p "${QGC_SAVE_PATH:-/data/qgc}"
 
+# A container restart keeps /tmp, so the lock of the previous Xvfb would make the new one refuse the display
+# and leave the app restarting against a dead display (seen on brix 07.11.2026). Nothing in this fresh PID
+# namespace owns the display yet: remove the stale lock and socket, then fail loudly if Xvfb still does not come up.
+n="${DISPLAY#:}"; n="${n%%.*}"
+rm -f "/tmp/.X${n}-lock" "/tmp/.X11-unix/X${n}"
 rm -f "${XAUTHORITY}" && touch "${XAUTHORITY}" && chmod 600 "${XAUTHORITY}"
 xauth -f "${XAUTHORITY}" add "${DISPLAY}" . "$(mcookie)"
 Xvfb "${DISPLAY}" -screen 0 "${VNC_GEOMETRY}x24" -nolisten tcp -auth "${XAUTHORITY}" &
 for _ in $(seq 1 50); do xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1 && break; sleep 0.2; done
+xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1 || { echo "[qgc] Xvfb did not start on ${DISPLAY}" >&2; exit 1; }
 openbox --config-file /etc/gs-qgc/openbox-rc.xml >/dev/null 2>&1 &
 x11vnc -display "${DISPLAY}" -auth "${XAUTHORITY}" -localhost -forever -shared -nopw -quiet -rfbport "${VNC_PORT}" &
 websockify --web /usr/share/novnc "127.0.0.1:${NOVNC_PORT}" "127.0.0.1:${VNC_PORT}" &
